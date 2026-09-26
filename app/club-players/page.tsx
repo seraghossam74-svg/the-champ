@@ -28,6 +28,16 @@ type Team = {
   clubId: string;
 };
 
+type UploadedFile = {
+  public_id: string;
+  resource_type?: string;
+  format?: string | null;
+  bytes?: number;
+  type?: string;
+  secure_url?: string | null;
+  name?: string;
+};
+
 type Player = {
   id: string;
   fullName: string;
@@ -43,6 +53,12 @@ type Player = {
   photoName?: string;
   photoType?: string;
   photoSize?: number;
+
+  fatherId?: UploadedFile;
+  motherId?: UploadedFile;
+  birthCertificate?: UploadedFile;
+  schoolCertificate?: UploadedFile;
+  otherDocument?: UploadedFile;
 
   teamId: string;
   teamName: string;
@@ -86,6 +102,15 @@ export default function ClubPlayersPage() {
 
   const [photo, setPhoto] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState("");
+
+  const [fatherId, setFatherId] = useState<File | null>(null);
+  const [motherId, setMotherId] = useState<File | null>(null);
+  const [birthCertificate, setBirthCertificate] =
+    useState<File | null>(null);
+  const [schoolCertificate, setSchoolCertificate] =
+    useState<File | null>(null);
+  const [otherDocument, setOtherDocument] =
+    useState<File | null>(null);
 
   const [selectedPlayer, setSelectedPlayer] =
     useState<Player | null>(null);
@@ -212,6 +237,77 @@ export default function ClubPlayersPage() {
     setMessage("");
   }
 
+  function handleDocumentChange(
+    event: React.ChangeEvent<HTMLInputElement>,
+    setter: (file: File | null) => void
+  ) {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    const isImage = file.type.startsWith("image/");
+    const isPdf = file.type === "application/pdf";
+
+    if (!isImage && !isPdf) {
+      setMessage("يسمح بالصور وملفات PDF فقط");
+      return;
+    }
+
+    if (file.size > 10 * 1024 * 1024) {
+      setMessage("حجم المستند يجب ألا يتجاوز 10 ميجابايت");
+      return;
+    }
+
+    setter(file);
+    setMessage("");
+  }
+
+  async function uploadFile(
+    file: File,
+    field: string,
+    clubId: string
+  ): Promise<UploadedFile> {
+    const user = auth.currentUser;
+
+    if (!user) {
+      throw new Error("يجب تسجيل الدخول أولًا");
+    }
+
+    const token = await user.getIdToken();
+
+    const formData = new FormData();
+
+    formData.append("file", file);
+    formData.append("field", field);
+    formData.append("clubId", clubId);
+
+    const response = await fetch("/api/upload", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data?.error || "فشل رفع الملف"
+      );
+    }
+
+    return {
+      public_id: data.public_id,
+      resource_type: data.resource_type,
+      format: data.format,
+      bytes: data.bytes,
+      type: data.type,
+      secure_url: data.secure_url,
+      name: file.name,
+    };
+  }
+
   async function addPlayer() {
     if (!club) {
       setMessage("بيانات النادي غير متاحة");
@@ -268,6 +364,26 @@ export default function ClubPlayersPage() {
       return;
     }
 
+    if (!fatherId) {
+      setMessage("ارفع صورة بطاقة الأب");
+      return;
+    }
+
+    if (!motherId) {
+      setMessage("ارفع صورة بطاقة الأم");
+      return;
+    }
+
+    if (!birthCertificate) {
+      setMessage("ارفع شهادة الميلاد");
+      return;
+    }
+
+    if (!schoolCertificate) {
+      setMessage("ارفع إفادة المدرسة");
+      return;
+    }
+
     const selectedTeam = teams.find(
       (team) => team.id === selectedTeamId
     );
@@ -279,46 +395,129 @@ export default function ClubPlayersPage() {
 
     try {
       setSaving(true);
-      setMessage("");
+      setMessage("جاري إضافة اللاعب...");
 
-      await addDoc(collection(db, "players"), {
-        fullName: fullName.trim(),
-        dateOfBirth,
-        nationalId: nationalId.trim(),
-        motherName: motherName.trim(),
-        school: school.trim(),
-        position,
-        jerseyNumber: jerseyNumber.trim(),
-        guardianPhone: guardianPhone.trim(),
+      const playerRef = await addDoc(
+        collection(db, "players"),
+        {
+          fullName: fullName.trim(),
+          dateOfBirth,
+          nationalId: nationalId.trim(),
+          motherName: motherName.trim(),
+          school: school.trim(),
+          position,
+          jerseyNumber: jerseyNumber.trim(),
+          guardianPhone: guardianPhone.trim(),
 
-        photoName: photo.name,
-        photoType: photo.type,
-        photoSize: photo.size,
+          clubId: club.id,
+          clubName: club.name,
 
-        clubId: club.id,
-        clubName: club.name,
+          teamId: selectedTeam.id,
+          teamName: selectedTeam.name,
+          birthYear: selectedTeam.birthYear,
 
-        teamId: selectedTeam.id,
-        teamName: selectedTeam.name,
-        birthYear: selectedTeam.birthYear,
+          approvalStatus: "pending",
+          playerStatus: "active",
+          rejectionReason: "",
 
-        approvalStatus: "pending",
-        playerStatus: "active",
-        rejectionReason: "",
+          createdAt: serverTimestamp(),
+        }
+      );
 
-        createdAt: serverTimestamp(),
-      });
+      setMessage("جاري رفع صورة اللاعب...");
+
+      const uploadedPhoto = await uploadFile(
+        photo,
+        "photo",
+        club.id
+      );
+
+      setMessage("جاري رفع مستندات اللاعب...");
+
+      const uploadedFatherId = await uploadFile(
+        fatherId,
+        "fatherId",
+        club.id
+      );
+
+      const uploadedMotherId = await uploadFile(
+        motherId,
+        "motherId",
+        club.id
+      );
+
+      const uploadedBirthCertificate =
+        await uploadFile(
+          birthCertificate,
+          "birthCertificate",
+          club.id
+        );
+
+      const uploadedSchoolCertificate =
+        await uploadFile(
+          schoolCertificate,
+          "schoolCertificate",
+          club.id
+        );
+
+      let uploadedOtherDocument:
+        | UploadedFile
+        | undefined;
+
+      if (otherDocument) {
+        uploadedOtherDocument =
+          await uploadFile(
+            otherDocument,
+            "other",
+            club.id
+          );
+      }
+
+      await updateDoc(
+        doc(db, "players", playerRef.id),
+        {
+          photoUrl:
+            uploadedPhoto.secure_url || "",
+
+          photoName: photo.name,
+          photoType: photo.type,
+          photoSize: photo.size,
+
+          fatherId: uploadedFatherId,
+          motherId: uploadedMotherId,
+          birthCertificate:
+            uploadedBirthCertificate,
+          schoolCertificate:
+            uploadedSchoolCertificate,
+
+          ...(uploadedOtherDocument
+            ? {
+                otherDocument:
+                  uploadedOtherDocument,
+              }
+            : {}),
+
+          updatedAt: serverTimestamp(),
+        }
+      );
 
       clearForm();
 
-      setMessage("تم إرسال اللاعب للمراجعة بنجاح ✅");
+      setMessage(
+        "تم إضافة اللاعب ورفع جميع المستندات بنجاح، وهو الآن قيد المراجعة ✅"
+      );
 
       if (auth.currentUser) {
         await loadData(auth.currentUser.uid);
       }
     } catch (error) {
       console.error(error);
-      setMessage("حدث خطأ أثناء إضافة اللاعب");
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "حدث خطأ أثناء إضافة اللاعب"
+      );
     } finally {
       setSaving(false);
     }
@@ -334,8 +533,15 @@ export default function ClubPlayersPage() {
     setJerseyNumber("");
     setGuardianPhone("");
     setSelectedTeamId("");
+
     setPhoto(null);
     setPhotoPreview("");
+
+    setFatherId(null);
+    setMotherId(null);
+    setBirthCertificate(null);
+    setSchoolCertificate(null);
+    setOtherDocument(null);
   }
 
   function openPlayerDetails(player: Player) {
@@ -350,7 +556,9 @@ export default function ClubPlayersPage() {
     setTransferTeamId("");
   }
 
-  function startEditRejectedPlayer(player: Player) {
+  function startEditRejectedPlayer(
+    player: Player
+  ) {
     setEditingPlayer(player);
 
     setFullName(player.fullName || "");
@@ -365,6 +573,13 @@ export default function ClubPlayersPage() {
 
     setPhoto(null);
     setPhotoPreview("");
+
+    setFatherId(null);
+    setMotherId(null);
+    setBirthCertificate(null);
+    setSchoolCertificate(null);
+    setOtherDocument(null);
+
     setMessage("");
 
     window.scrollTo({
@@ -438,7 +653,7 @@ export default function ClubPlayersPage() {
 
     try {
       setSaving(true);
-      setMessage("");
+      setMessage("جاري حفظ التعديل...");
 
       const updateData: any = {
         fullName: fullName.trim(),
@@ -461,9 +676,75 @@ export default function ClubPlayersPage() {
       };
 
       if (photo) {
+        setMessage("جاري رفع صورة اللاعب...");
+
+        const uploadedPhoto = await uploadFile(
+          photo,
+          "photo",
+          club.id
+        );
+
+        updateData.photoUrl =
+          uploadedPhoto.secure_url || "";
+
         updateData.photoName = photo.name;
         updateData.photoType = photo.type;
         updateData.photoSize = photo.size;
+      }
+
+      if (fatherId) {
+        setMessage("جاري رفع بطاقة الأب...");
+
+        updateData.fatherId =
+          await uploadFile(
+            fatherId,
+            "fatherId",
+            club.id
+          );
+      }
+
+      if (motherId) {
+        setMessage("جاري رفع بطاقة الأم...");
+
+        updateData.motherId =
+          await uploadFile(
+            motherId,
+            "motherId",
+            club.id
+          );
+      }
+
+      if (birthCertificate) {
+        setMessage("جاري رفع شهادة الميلاد...");
+
+        updateData.birthCertificate =
+          await uploadFile(
+            birthCertificate,
+            "birthCertificate",
+            club.id
+          );
+      }
+
+      if (schoolCertificate) {
+        setMessage("جاري رفع إفادة المدرسة...");
+
+        updateData.schoolCertificate =
+          await uploadFile(
+            schoolCertificate,
+            "schoolCertificate",
+            club.id
+          );
+      }
+
+      if (otherDocument) {
+        setMessage("جاري رفع المستند الآخر...");
+
+        updateData.otherDocument =
+          await uploadFile(
+            otherDocument,
+            "other",
+            club.id
+          );
       }
 
       await updateDoc(
@@ -483,7 +764,12 @@ export default function ClubPlayersPage() {
       }
     } catch (error) {
       console.error(error);
-      setMessage("حدث خطأ أثناء تعديل بيانات اللاعب");
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "حدث خطأ أثناء تعديل بيانات اللاعب"
+      );
     } finally {
       setSaving(false);
     }
@@ -846,6 +1132,79 @@ export default function ClubPlayersPage() {
           </div>
         </div>
 
+        <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-6">
+
+          <div className="mb-5">
+            <h2 className="text-xl font-bold">
+              📁 مستندات اللاعب
+            </h2>
+
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              المستندات مطلوبة للمراجعة، ولا تظهر للزوار.
+              الصور وملفات PDF مسموحة بحد أقصى 10MB لكل مستند.
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+
+            <DocumentUpload
+              label="🪪 صورة بطاقة الأب"
+              file={fatherId}
+              onChange={(e) =>
+                handleDocumentChange(
+                  e,
+                  setFatherId
+                )
+              }
+            />
+
+            <DocumentUpload
+              label="🪪 صورة بطاقة الأم"
+              file={motherId}
+              onChange={(e) =>
+                handleDocumentChange(
+                  e,
+                  setMotherId
+                )
+              }
+            />
+
+            <DocumentUpload
+              label="📄 شهادة الميلاد"
+              file={birthCertificate}
+              onChange={(e) =>
+                handleDocumentChange(
+                  e,
+                  setBirthCertificate
+                )
+              }
+            />
+
+            <DocumentUpload
+              label="🏫 إفادة المدرسة"
+              file={schoolCertificate}
+              onChange={(e) =>
+                handleDocumentChange(
+                  e,
+                  setSchoolCertificate
+                )
+              }
+            />
+
+            <DocumentUpload
+              label="📎 مستند آخر — اختياري"
+              file={otherDocument}
+              onChange={(e) =>
+                handleDocumentChange(
+                  e,
+                  setOtherDocument
+                )
+              }
+            />
+
+          </div>
+        </div>
+
         <div className="mt-6">
 
           <button
@@ -860,7 +1219,7 @@ export default function ClubPlayersPage() {
             className="w-full rounded-2xl bg-green-500 px-6 py-4 text-lg font-extrabold text-white transition hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving
-              ? "جاري الحفظ..."
+              ? "جاري الحفظ والرفع..."
               : editingPlayer
               ? "✓ حفظ التعديل وإعادة المراجعة"
               : "✓ إضافة اللاعب للمراجعة"}
@@ -1105,6 +1464,54 @@ export default function ClubPlayersPage() {
 
             </div>
 
+            <div className="mt-6 rounded-2xl border border-white/10 bg-white/5 p-5">
+
+              <h3 className="mb-4 text-lg font-bold">
+                📁 حالة المستندات
+              </h3>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+
+                <DocumentStatus
+                  label="بطاقة الأب"
+                  uploaded={!!selectedPlayer.fatherId}
+                />
+
+                <DocumentStatus
+                  label="بطاقة الأم"
+                  uploaded={!!selectedPlayer.motherId}
+                />
+
+                <DocumentStatus
+                  label="شهادة الميلاد"
+                  uploaded={
+                    !!selectedPlayer.birthCertificate
+                  }
+                />
+
+                <DocumentStatus
+                  label="إفادة المدرسة"
+                  uploaded={
+                    !!selectedPlayer.schoolCertificate
+                  }
+                />
+
+                <DocumentStatus
+                  label="مستند آخر"
+                  uploaded={
+                    !!selectedPlayer.otherDocument
+                  }
+                />
+
+              </div>
+
+              <p className="mt-4 text-xs leading-6 text-slate-500">
+                المستندات الحساسة محفوظة بشكل خاص، وسيتم
+                فتحها لاحقًا من خلال صلاحيات النادي والأدمن فقط.
+              </p>
+
+            </div>
+
             {selectedPlayer.approvalStatus === "rejected" &&
               selectedPlayer.rejectionReason && (
                 <div className="mt-6 rounded-xl bg-red-500/10 p-4">
@@ -1341,6 +1748,83 @@ function Field({
         placeholder={placeholder}
         className="w-full rounded-xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none"
       />
+    </div>
+  );
+}
+
+function DocumentUpload({
+  label,
+  file,
+  onChange,
+}: {
+  label: string;
+  file: File | null;
+  onChange: (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => void;
+}) {
+  return (
+    <label className="block cursor-pointer rounded-2xl border border-dashed border-white/10 bg-slate-950 p-5 transition hover:border-white/20">
+
+      <div className="flex items-center justify-between gap-3">
+
+        <div>
+          <p className="font-bold">
+            {label}
+          </p>
+
+          <p className="mt-1 text-xs text-slate-500">
+            صورة أو PDF — حتى 10MB
+          </p>
+        </div>
+
+        <div className="rounded-xl bg-white/10 px-4 py-2 text-sm font-bold">
+          {file ? "✓ تم الاختيار" : "رفع"}
+        </div>
+
+      </div>
+
+      {file && (
+        <p className="mt-3 truncate text-sm text-green-400">
+          {file.name}
+        </p>
+      )}
+
+      <input
+        type="file"
+        accept="image/*,.pdf,application/pdf"
+        onChange={onChange}
+        className="hidden"
+      />
+
+    </label>
+  );
+}
+
+function DocumentStatus({
+  label,
+  uploaded,
+}: {
+  label: string;
+  uploaded: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-xl bg-slate-950 p-4">
+
+      <span className="text-sm text-slate-300">
+        {label}
+      </span>
+
+      <span
+        className={
+          uploaded
+            ? "text-sm font-bold text-green-400"
+            : "text-sm font-bold text-red-400"
+        }
+      >
+        {uploaded ? "✓ مرفوع" : "✕ غير مرفوع"}
+      </span>
+
     </div>
   );
 }

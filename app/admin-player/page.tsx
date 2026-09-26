@@ -1,9 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { doc, getDoc, getFirestore, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  getFirestore,
+  updateDoc,
+} from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import app from "../../firebase";
+
+type UploadedFile = {
+  public_id?: string;
+  resource_type?: string;
+  format?: string;
+  bytes?: number;
+  type?: string;
+};
 
 type Player = {
   id: string;
@@ -30,8 +43,22 @@ type Player = {
 
   photo?: string;
   photoUrl?: string;
+
+  fatherId?: UploadedFile;
+  motherId?: UploadedFile;
+  birthCertificate?: UploadedFile;
+  schoolCertificate?: UploadedFile;
+  otherDocument?: UploadedFile;
+
   createdAt?: any;
 };
+
+type DocumentField =
+  | "fatherId"
+  | "motherId"
+  | "birthCertificate"
+  | "schoolCertificate"
+  | "otherDocument";
 
 export default function AdminPlayerPage() {
   const [player, setPlayer] = useState<Player | null>(null);
@@ -43,10 +70,16 @@ export default function AdminPlayerPage() {
   const [showReject, setShowReject] = useState(false);
   const [rejectionReason, setRejectionReason] = useState("");
 
+  const [openingDocument, setOpeningDocument] =
+    useState<DocumentField | null>(null);
+
   useEffect(() => {
     async function loadPlayer() {
       try {
-        const params = new URLSearchParams(window.location.search);
+        const params = new URLSearchParams(
+          window.location.search
+        );
+
         const playerId = params.get("id");
 
         if (!playerId) {
@@ -56,7 +89,12 @@ export default function AdminPlayerPage() {
         }
 
         const db = getFirestore(app);
-        const playerRef = doc(db, "players", playerId);
+        const playerRef = doc(
+          db,
+          "players",
+          playerId
+        );
+
         const playerSnap = await getDoc(playerRef);
 
         if (!playerSnap.exists()) {
@@ -73,7 +111,9 @@ export default function AdminPlayerPage() {
         setLoading(false);
       } catch (err) {
         console.error(err);
-        setError("حدث خطأ أثناء تحميل بيانات اللاعب");
+        setError(
+          "حدث خطأ أثناء تحميل بيانات اللاعب"
+        );
         setLoading(false);
       }
     }
@@ -83,7 +123,8 @@ export default function AdminPlayerPage() {
 
   function goBack() {
     if (player?.teamId) {
-      window.location.href = "/admin-team?id=" + player.teamId;
+      window.location.href =
+        "/admin-team?id=" + player.teamId;
     } else {
       window.location.href = "/clubs";
     }
@@ -99,27 +140,36 @@ export default function AdminPlayerPage() {
       const currentUser = auth.currentUser;
 
       if (!currentUser) {
-        throw new Error("يجب تسجيل الدخول كأدمن");
+        throw new Error(
+          "يجب تسجيل الدخول كأدمن"
+        );
       }
 
-      const idToken = await currentUser.getIdToken();
+      const idToken =
+        await currentUser.getIdToken();
 
-      const response = await fetch("/api/players/approve", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${idToken}`,
-        },
-        body: JSON.stringify({
-          playerId: player.id,
-        }),
-      });
+      const response = await fetch(
+        "/api/players/approve",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Authorization:
+              `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            playerId: player.id,
+          }),
+        }
+      );
 
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data.error || "حدث خطأ أثناء اعتماد اللاعب"
+          data.error ||
+            "حدث خطأ أثناء اعتماد اللاعب"
         );
       }
 
@@ -132,7 +182,8 @@ export default function AdminPlayerPage() {
       console.error(error);
 
       alert(
-        error?.message || "حدث خطأ أثناء اعتماد اللاعب"
+        error?.message ||
+          "حدث خطأ أثناء اعتماد اللاعب"
       );
 
       setSaving(false);
@@ -165,7 +216,8 @@ export default function AdminPlayerPage() {
 
       await updateDoc(playerRef, {
         approvalStatus: "rejected",
-        rejectionReason: rejectionReason.trim(),
+        rejectionReason:
+          rejectionReason.trim(),
       });
 
       alert("تم رفض اللاعب");
@@ -183,10 +235,81 @@ export default function AdminPlayerPage() {
     }
   }
 
+  async function openDocument(
+    field: DocumentField
+  ) {
+    if (!player || openingDocument) return;
+
+    try {
+      setOpeningDocument(field);
+
+      const auth = getAuth(app);
+      const currentUser = auth.currentUser;
+
+      if (!currentUser) {
+        throw new Error(
+          "يجب تسجيل الدخول أولًا"
+        );
+      }
+
+      const idToken =
+        await currentUser.getIdToken();
+
+      const response = await fetch(
+        `/api/player-document?playerId=${encodeURIComponent(
+          player.id
+        )}&field=${encodeURIComponent(field)}`,
+        {
+          method: "GET",
+          headers: {
+            Authorization:
+              `Bearer ${idToken}`,
+          },
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "تعذر فتح المستند"
+        );
+      }
+
+      if (!data.url) {
+        throw new Error(
+          "لم يتم إنشاء رابط المستند"
+        );
+      }
+
+      window.open(
+        data.url,
+        "_blank",
+        "noopener,noreferrer"
+      );
+    } catch (error: any) {
+      console.error(error);
+
+      alert(
+        error?.message ||
+          "حدث خطأ أثناء فتح المستند"
+      );
+    } finally {
+      setOpeningDocument(null);
+    }
+  }
+
   function getApprovalText(status?: string) {
-    if (status === "approved") return "معتمد";
-    if (status === "rejected") return "مرفوض";
-    if (status === "pending") return "قيد المراجعة";
+    if (status === "approved")
+      return "معتمد";
+
+    if (status === "rejected")
+      return "مرفوض";
+
+    if (status === "pending")
+      return "قيد المراجعة";
+
     return "غير محدد";
   }
 
@@ -195,7 +318,8 @@ export default function AdminPlayerPage() {
       return {
         background: "#064e3b",
         color: "#6ee7b7",
-        border: "1px solid #047857",
+        border:
+          "1px solid #047857",
       };
     }
 
@@ -203,14 +327,16 @@ export default function AdminPlayerPage() {
       return {
         background: "#450a0a",
         color: "#fca5a5",
-        border: "1px solid #991b1b",
+        border:
+          "1px solid #991b1b",
       };
     }
 
     return {
       background: "#713f12",
       color: "#fde68a",
-      border: "1px solid #a16207",
+      border:
+        "1px solid #a16207",
     };
   }
 
@@ -219,7 +345,11 @@ export default function AdminPlayerPage() {
 
     try {
       if (value?.toDate) {
-        return value.toDate().toLocaleDateString("ar-EG");
+        return value
+          .toDate()
+          .toLocaleDateString(
+            "ar-EG"
+          );
       }
 
       return String(value);
@@ -269,14 +399,20 @@ export default function AdminPlayerPage() {
             maxWidth: "700px",
             margin: "0 auto",
             background: "#111827",
-            border: "1px solid #334155",
+            border:
+              "1px solid #334155",
             borderRadius: "18px",
             padding: "30px",
             textAlign: "center",
           }}
         >
-          <h2 style={{ marginBottom: "20px" }}>
-            {error || "اللاعب غير موجود"}
+          <h2
+            style={{
+              marginBottom: "20px",
+            }}
+          >
+            {error ||
+              "اللاعب غير موجود"}
           </h2>
 
           <button
@@ -298,12 +434,14 @@ export default function AdminPlayerPage() {
     );
   }
 
-  const approvalStyle = getApprovalStyle(
-    player.approvalStatus
-  );
+  const approvalStyle =
+    getApprovalStyle(
+      player.approvalStatus
+    );
 
   const playerPhoto =
-    player.photoUrl || player.photo;
+    player.photoUrl ||
+    player.photo;
 
   return (
     <main
@@ -327,7 +465,8 @@ export default function AdminPlayerPage() {
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
+            justifyContent:
+              "space-between",
             alignItems: "center",
             gap: "15px",
             marginBottom: "25px",
@@ -360,7 +499,8 @@ export default function AdminPlayerPage() {
             style={{
               background: "#1e293b",
               color: "white",
-              border: "1px solid #475569",
+              border:
+                "1px solid #475569",
               padding: "11px 20px",
               borderRadius: "10px",
               cursor: "pointer",
@@ -376,7 +516,8 @@ export default function AdminPlayerPage() {
         <div
           style={{
             background: "#111827",
-            border: "1px solid #334155",
+            border:
+              "1px solid #334155",
             borderRadius: "18px",
             padding: "25px",
             marginBottom: "20px",
@@ -385,7 +526,8 @@ export default function AdminPlayerPage() {
           <div
             style={{
               display: "flex",
-              justifyContent: "space-between",
+              justifyContent:
+                "space-between",
               alignItems: "center",
               gap: "20px",
               flexWrap: "wrap",
@@ -401,13 +543,17 @@ export default function AdminPlayerPage() {
               {playerPhoto ? (
                 <img
                   src={playerPhoto}
-                  alt={player.fullName || "صورة اللاعب"}
+                  alt={
+                    player.fullName ||
+                    "صورة اللاعب"
+                  }
                   style={{
                     width: "90px",
                     height: "110px",
                     objectFit: "cover",
                     borderRadius: "12px",
-                    border: "1px solid #475569",
+                    border:
+                      "1px solid #475569",
                   }}
                 />
               ) : (
@@ -417,9 +563,11 @@ export default function AdminPlayerPage() {
                     height: "110px",
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "center",
+                    justifyContent:
+                      "center",
                     background: "#0f172a",
-                    border: "1px solid #475569",
+                    border:
+                      "1px solid #475569",
                     borderRadius: "12px",
                     fontSize: "35px",
                   }}
@@ -435,7 +583,9 @@ export default function AdminPlayerPage() {
                     fontSize: "28px",
                   }}
                 >
-                  {value(player.fullName)}
+                  {value(
+                    player.fullName
+                  )}
                 </h2>
 
                 <p
@@ -444,7 +594,10 @@ export default function AdminPlayerPage() {
                     margin: "8px 0 0",
                   }}
                 >
-                  رقم القميص: {value(player.jerseyNumber)}
+                  رقم القميص:{" "}
+                  {value(
+                    player.jerseyNumber
+                  )}
                 </p>
               </div>
             </div>
@@ -457,7 +610,9 @@ export default function AdminPlayerPage() {
                 fontWeight: "700",
               }}
             >
-              {getApprovalText(player.approvalStatus)}
+              {getApprovalText(
+                player.approvalStatus
+              )}
             </span>
           </div>
         </div>
@@ -467,7 +622,8 @@ export default function AdminPlayerPage() {
         <section
           style={{
             background: "#111827",
-            border: "1px solid #334155",
+            border:
+              "1px solid #334155",
             borderRadius: "18px",
             padding: "25px",
             marginBottom: "20px",
@@ -493,42 +649,58 @@ export default function AdminPlayerPage() {
           >
             <Info
               label="الاسم بالكامل"
-              value={value(player.fullName)}
+              value={value(
+                player.fullName
+              )}
             />
 
             <Info
               label="تاريخ الميلاد"
-              value={value(player.dateOfBirth)}
+              value={value(
+                player.dateOfBirth
+              )}
             />
 
             <Info
               label="الرقم القومي"
-              value={value(player.nationalId)}
+              value={value(
+                player.nationalId
+              )}
             />
 
             <Info
               label="اسم الأم"
-              value={value(player.motherName)}
+              value={value(
+                player.motherName
+              )}
             />
 
             <Info
               label="المدرسة"
-              value={value(player.school)}
+              value={value(
+                player.school
+              )}
             />
 
             <Info
               label="المركز"
-              value={value(player.position)}
+              value={value(
+                player.position
+              )}
             />
 
             <Info
               label="رقم القميص"
-              value={value(player.jerseyNumber)}
+              value={value(
+                player.jerseyNumber
+              )}
             />
 
             <Info
               label="رقم ولي الأمر"
-              value={value(player.guardianPhone)}
+              value={value(
+                player.guardianPhone
+              )}
             />
           </div>
         </section>
@@ -538,7 +710,8 @@ export default function AdminPlayerPage() {
         <section
           style={{
             background: "#111827",
-            border: "1px solid #334155",
+            border:
+              "1px solid #334155",
             borderRadius: "18px",
             padding: "25px",
             marginBottom: "20px",
@@ -564,17 +737,23 @@ export default function AdminPlayerPage() {
           >
             <Info
               label="النادي"
-              value={value(player.clubName)}
+              value={value(
+                player.clubName
+              )}
             />
 
             <Info
               label="الفريق"
-              value={value(player.teamName)}
+              value={value(
+                player.teamName
+              )}
             />
 
             <Info
               label="حالة اللاعب"
-              value={value(player.playerStatus)}
+              value={value(
+                player.playerStatus
+              )}
             />
           </div>
         </section>
@@ -584,7 +763,8 @@ export default function AdminPlayerPage() {
         <section
           style={{
             background: "#111827",
-            border: "1px solid #334155",
+            border:
+              "1px solid #334155",
             borderRadius: "18px",
             padding: "25px",
             marginBottom: "20px",
@@ -631,21 +811,27 @@ export default function AdminPlayerPage() {
 
             <Info
               label="تاريخ الإضافة"
-              value={formatDate(player.createdAt)}
+              value={formatDate(
+                player.createdAt
+              )}
             />
           </div>
 
-          {player.approvalStatus === "rejected" && (
+          {player.approvalStatus ===
+            "rejected" && (
             <div
               style={{
                 marginTop: "20px",
                 background: "#450a0a",
-                border: "1px solid #991b1b",
+                border:
+                  "1px solid #991b1b",
                 borderRadius: "12px",
                 padding: "16px",
               }}
             >
-              <strong>سبب الرفض:</strong>
+              <strong>
+                سبب الرفض:
+              </strong>
 
               <div
                 style={{
@@ -653,19 +839,123 @@ export default function AdminPlayerPage() {
                   color: "#fecaca",
                 }}
               >
-                {value(player.rejectionReason)}
+                {value(
+                  player.rejectionReason
+                )}
               </div>
             </div>
           )}
         </section>
 
+        {/* Documents */}
+
+        <section
+          style={{
+            background: "#111827",
+            border:
+              "1px solid #334155",
+            borderRadius: "18px",
+            padding: "25px",
+            marginBottom: "20px",
+          }}
+        >
+          <h3
+            style={{
+              marginTop: 0,
+              marginBottom: "8px",
+              fontSize: "21px",
+            }}
+          >
+            📁 مستندات اللاعب
+          </h3>
+
+          <p
+            style={{
+              color: "#94a3b8",
+              marginTop: 0,
+              marginBottom: "20px",
+              fontSize: "14px",
+            }}
+          >
+            المستندات محمية ويتم فتحها من خلال
+            رابط آمن مؤقت.
+          </p>
+
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns:
+                "repeat(auto-fit, minmax(220px, 1fr))",
+              gap: "14px",
+            }}
+          >
+            <DocumentCard
+              label="صورة بطاقة الأب"
+              document={player.fatherId}
+              field="fatherId"
+              openingDocument={
+                openingDocument
+              }
+              onOpen={openDocument}
+            />
+
+            <DocumentCard
+              label="صورة بطاقة الأم"
+              document={player.motherId}
+              field="motherId"
+              openingDocument={
+                openingDocument
+              }
+              onOpen={openDocument}
+            />
+
+            <DocumentCard
+              label="شهادة الميلاد"
+              document={
+                player.birthCertificate
+              }
+              field="birthCertificate"
+              openingDocument={
+                openingDocument
+              }
+              onOpen={openDocument}
+            />
+
+            <DocumentCard
+              label="إفادة المدرسة"
+              document={
+                player.schoolCertificate
+              }
+              field="schoolCertificate"
+              openingDocument={
+                openingDocument
+              }
+              onOpen={openDocument}
+            />
+
+            <DocumentCard
+              label="مستند آخر"
+              document={
+                player.otherDocument
+              }
+              field="otherDocument"
+              openingDocument={
+                openingDocument
+              }
+              onOpen={openDocument}
+            />
+          </div>
+        </section>
+
         {/* Actions */}
 
-        {player.approvalStatus === "pending" && (
+        {player.approvalStatus ===
+          "pending" && (
           <section
             style={{
               background: "#111827",
-              border: "1px solid #334155",
+              border:
+                "1px solid #334155",
               borderRadius: "18px",
               padding: "25px",
               marginBottom: "20px",
@@ -721,7 +1011,8 @@ export default function AdminPlayerPage() {
                   minWidth: "220px",
                   background: "#450a0a",
                   color: "#fca5a5",
-                  border: "1px solid #991b1b",
+                  border:
+                    "1px solid #991b1b",
                   padding: "15px 25px",
                   borderRadius: "10px",
                   cursor: saving
@@ -742,7 +1033,8 @@ export default function AdminPlayerPage() {
         <section
           style={{
             background: "#111827",
-            border: "1px solid #334155",
+            border:
+              "1px solid #334155",
             borderRadius: "18px",
             padding: "25px",
           }}
@@ -760,20 +1052,25 @@ export default function AdminPlayerPage() {
           {playerPhoto ? (
             <img
               src={playerPhoto}
-              alt={player.fullName || "صورة اللاعب"}
+              alt={
+                player.fullName ||
+                "صورة اللاعب"
+              }
               style={{
                 width: "180px",
                 height: "220px",
                 objectFit: "cover",
                 borderRadius: "12px",
-                border: "1px solid #475569",
+                border:
+                  "1px solid #475569",
               }}
             />
           ) : (
             <div
               style={{
                 background: "#0f172a",
-                border: "1px dashed #475569",
+                border:
+                  "1px dashed #475569",
                 borderRadius: "12px",
                 padding: "25px",
                 color: "#94a3b8",
@@ -794,10 +1091,12 @@ export default function AdminPlayerPage() {
             position: "fixed",
             inset: 0,
             zIndex: 100,
-            background: "rgba(0,0,0,0.75)",
+            background:
+              "rgba(0,0,0,0.75)",
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
+            justifyContent:
+              "center",
             padding: "20px",
           }}
         >
@@ -806,7 +1105,8 @@ export default function AdminPlayerPage() {
               width: "100%",
               maxWidth: "520px",
               background: "#111827",
-              border: "1px solid #334155",
+              border:
+                "1px solid #334155",
               borderRadius: "18px",
               padding: "25px",
               boxShadow:
@@ -830,7 +1130,11 @@ export default function AdminPlayerPage() {
               }}
             >
               اللاعب:{" "}
-              <span style={{ color: "white" }}>
+              <span
+                style={{
+                  color: "white",
+                }}
+              >
                 {player.fullName}
               </span>
             </p>
@@ -850,7 +1154,9 @@ export default function AdminPlayerPage() {
             <textarea
               value={rejectionReason}
               onChange={(e) =>
-                setRejectionReason(e.target.value)
+                setRejectionReason(
+                  e.target.value
+                )
               }
               placeholder="اكتب سبب رفض اللاعب..."
               rows={5}
@@ -861,7 +1167,8 @@ export default function AdminPlayerPage() {
                 resize: "vertical",
                 background: "#020617",
                 color: "white",
-                border: "1px solid #475569",
+                border:
+                  "1px solid #475569",
                 borderRadius: "12px",
                 padding: "14px",
                 outline: "none",
@@ -886,7 +1193,8 @@ export default function AdminPlayerPage() {
                   flex: 1,
                   background: "#1e293b",
                   color: "#cbd5e1",
-                  border: "1px solid #475569",
+                  border:
+                    "1px solid #475569",
                   padding: "13px",
                   borderRadius: "10px",
                   cursor: saving
@@ -930,6 +1238,100 @@ export default function AdminPlayerPage() {
   );
 }
 
+function DocumentCard({
+  label,
+  document,
+  field,
+  openingDocument,
+  onOpen,
+}: {
+  label: string;
+  document?: UploadedFile;
+  field: DocumentField;
+  openingDocument: DocumentField | null;
+  onOpen: (
+    field: DocumentField
+  ) => void;
+}) {
+  const exists =
+    !!document?.public_id;
+
+  const isOpening =
+    openingDocument === field;
+
+  return (
+    <div
+      style={{
+        background: "#0f172a",
+        border:
+          "1px solid #263449",
+        borderRadius: "14px",
+        padding: "18px",
+      }}
+    >
+      <div
+        style={{
+          fontSize: "16px",
+          fontWeight: "700",
+          marginBottom: "12px",
+        }}
+      >
+        {label}
+      </div>
+
+      {exists ? (
+        <>
+          <div
+            style={{
+              color: "#6ee7b7",
+              fontSize: "13px",
+              marginBottom: "12px",
+            }}
+          >
+            ✓ المستند مرفوع
+          </div>
+
+          <button
+            onClick={() =>
+              onOpen(field)
+            }
+            disabled={!!openingDocument}
+            style={{
+              width: "100%",
+              background: isOpening
+                ? "#475569"
+                : "#2563eb",
+              color: "white",
+              border: "none",
+              padding: "11px",
+              borderRadius: "9px",
+              cursor:
+                openingDocument
+                  ? "not-allowed"
+                  : "pointer",
+              fontSize: "14px",
+              fontWeight: "700",
+            }}
+          >
+            {isOpening
+              ? "جاري الفتح..."
+              : "👁 فتح المستند"}
+          </button>
+        </>
+      ) : (
+        <div
+          style={{
+            color: "#94a3b8",
+            fontSize: "13px",
+          }}
+        >
+          المستند غير موجود
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Info({
   label,
   value,
@@ -941,7 +1343,8 @@ function Info({
     <div
       style={{
         background: "#0f172a",
-        border: "1px solid #263449",
+        border:
+          "1px solid #263449",
         borderRadius: "12px",
         padding: "15px",
       }}

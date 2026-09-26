@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "../../../../lib/firebase-admin";
-
-const ADMIN_UID = "CP12ohOiNoWpcNkXmZhmalZw8eD3";
+import { isSuperAdmin } from "../../../../lib/admin-permissions";
 
 export async function POST(request: NextRequest) {
   try {
-    // التأكد إن الطلب جاي من الأدمن
+    // التحقق من تسجيل الدخول
     const authHeader = request.headers.get("authorization");
 
     if (!authHeader?.startsWith("Bearer ")) {
@@ -20,9 +19,10 @@ export async function POST(request: NextRequest) {
     const decodedToken =
       await adminAuth.verifyIdToken(idToken);
 
-    if (decodedToken.uid !== ADMIN_UID) {
+    // اعتماد اللاعبين حاليًا متاح للـ SUPER ADMIN فقط
+    if (!isSuperAdmin(decodedToken)) {
       return NextResponse.json(
-        { error: "ليس لديك صلاحية" },
+        { error: "ليس لديك صلاحية اعتماد اللاعبين" },
         { status: 403 }
       );
     }
@@ -118,7 +118,6 @@ export async function POST(request: NextRequest) {
       registrationNumber,
       registrationDate,
     });
-
   } catch (error: any) {
     console.error("APPROVE PLAYER ERROR:", error);
 
