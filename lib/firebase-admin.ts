@@ -1,23 +1,27 @@
 import "server-only";
-import fs from "fs";
-import path from "path";
+
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 
-const serviceAccountPath = path.join(
-  process.cwd(),
-  "the-champ-t-firebase-adminsdk-fbsvc-8bd7bb5021.json"
-);
+const projectId = process.env.FIREBASE_PROJECT_ID;
+const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
 
-const serviceAccount = JSON.parse(
-  fs.readFileSync(serviceAccountPath, "utf8")
-);
+if (!projectId || !clientEmail || !privateKey) {
+  throw new Error(
+    "Missing Firebase Admin environment variables: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY"
+  );
+}
 
 const adminApp =
   getApps().length === 0
     ? initializeApp({
-        credential: cert(serviceAccount),
+        credential: cert({
+          projectId,
+          clientEmail,
+          privateKey,
+        }),
       })
     : getApps()[0];
 
