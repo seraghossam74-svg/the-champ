@@ -1,4 +1,37 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import {
+  getAuth,
+  onAuthStateChanged,
+} from "firebase/auth";
+import app from "../../firebase";
+
+const SUPER_ADMIN_UID =
+  "CP12ohOiNoWpcNkXmZhmalZw8eD3";
+
 export default function AdminPage() {
+  const [isSuperAdmin, setIsSuperAdmin] =
+    useState(false);
+
+  const [authLoading, setAuthLoading] =
+    useState(true);
+
+  useEffect(() => {
+    const auth = getAuth(app);
+
+    const unsubscribe =
+      onAuthStateChanged(auth, (user) => {
+        setIsSuperAdmin(
+          user?.uid === SUPER_ADMIN_UID
+        );
+
+        setAuthLoading(false);
+      });
+
+    return () => unsubscribe();
+  }, []);
+
   return (
     <main
       dir="rtl"
@@ -63,6 +96,16 @@ export default function AdminPage() {
               🥅 الهدافين
             </button>
 
+            {/* SUPER ADMIN */}
+            {!authLoading && isSuperAdmin && (
+              <a
+                href="/admin-management"
+                className="mt-4 block w-full rounded-xl border border-amber-400/30 bg-amber-400/10 px-4 py-3 text-right font-bold text-amber-300 hover:bg-amber-400/20"
+              >
+                👑 SUPER ADMIN
+              </a>
+            )}
+
           </nav>
         </aside>
 
@@ -89,7 +132,9 @@ export default function AdminPage() {
               href="/competitions"
               className="block rounded-2xl border border-white/10 bg-white/5 p-6 transition hover:bg-white/10"
             >
-              <p className="text-slate-400">البطولات</p>
+              <p className="text-slate-400">
+                البطولات
+              </p>
 
               <p className="mt-3 text-3xl font-bold">
                 →
@@ -104,7 +149,9 @@ export default function AdminPage() {
               href="/clubs"
               className="rounded-2xl border border-white/10 bg-white/5 p-6 transition hover:bg-white/10"
             >
-              <p className="text-slate-400">الأندية</p>
+              <p className="text-slate-400">
+                الأندية
+              </p>
 
               <p className="mt-3 text-3xl font-bold">
                 →
@@ -134,6 +181,34 @@ export default function AdminPage() {
                 —
               </p>
             </div>
+
+            {/* SUPER ADMIN CARD */}
+            {!authLoading && isSuperAdmin && (
+              <a
+                href="/admin-management"
+                className="rounded-2xl border border-amber-400/30 bg-amber-400/10 p-6 transition hover:bg-amber-400/20 sm:col-span-2 xl:col-span-4"
+              >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-amber-300">
+                      👑 SUPER ADMIN
+                    </p>
+
+                    <h3 className="mt-2 text-2xl font-extrabold text-white">
+                      إدارة النظام والأدمن
+                    </h3>
+
+                    <p className="mt-2 text-sm text-slate-400">
+                      إضافة وحذف حسابات الأدمن والتحكم في صلاحيات الإدارة
+                    </p>
+                  </div>
+
+                  <div className="rounded-xl bg-amber-400 px-5 py-3 text-center font-bold text-slate-950">
+                    فتح إدارة SUPER ADMIN →
+                  </div>
+                </div>
+              </a>
+            )}
 
           </div>
 
@@ -191,7 +266,6 @@ export default function AdminPage() {
           </div>
 
         </section>
-
       </div>
     </main>
   );

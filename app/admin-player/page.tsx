@@ -43,6 +43,9 @@ type Player = {
 
   photo?: string;
   photoUrl?: string;
+  photoPublicId?: string;
+  photoResourceType?: string;
+  photoType?: string;
 
   fatherId?: UploadedFile;
   motherId?: UploadedFile;
@@ -89,6 +92,7 @@ export default function AdminPlayerPage() {
         }
 
         const db = getFirestore(app);
+
         const playerRef = doc(
           db,
           "players",
@@ -111,9 +115,11 @@ export default function AdminPlayerPage() {
         setLoading(false);
       } catch (err) {
         console.error(err);
+
         setError(
           "حدث خطأ أثناء تحميل بيانات اللاعب"
         );
+
         setLoading(false);
       }
     }
@@ -130,23 +136,30 @@ export default function AdminPlayerPage() {
     }
   }
 
+  async function getCurrentUserToken() {
+    const auth = getAuth(app);
+
+    await auth.authStateReady();
+
+    const currentUser = auth.currentUser;
+
+    if (!currentUser) {
+      throw new Error(
+        "يجب تسجيل الدخول كأدمن"
+      );
+    }
+
+    return currentUser.getIdToken();
+  }
+
   async function approvePlayer() {
     if (!player || saving) return;
 
     try {
       setSaving(true);
 
-      const auth = getAuth(app);
-      const currentUser = auth.currentUser;
-
-      if (!currentUser) {
-        throw new Error(
-          "يجب تسجيل الدخول كأدمن"
-        );
-      }
-
       const idToken =
-        await currentUser.getIdToken();
+        await getCurrentUserToken();
 
       const response = await fetch(
         "/api/players/approve",
@@ -184,6 +197,66 @@ export default function AdminPlayerPage() {
       alert(
         error?.message ||
           "حدث خطأ أثناء اعتماد اللاعب"
+      );
+
+      setSaving(false);
+    }
+  }
+
+  async function deletePlayer() {
+    if (!player || saving) return;
+
+    const confirmed = window.confirm(
+      `هل أنت متأكد من حذف اللاعب "${player.fullName || ""}"؟\n\nسيتم حذف سجل اللاعب نهائيًا.`
+    );
+
+    if (!confirmed) return;
+
+    try {
+      setSaving(true);
+
+      const idToken =
+        await getCurrentUserToken();
+
+      const response = await fetch(
+        "/api/players/delete",
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type":
+              "application/json",
+            Authorization:
+              `Bearer ${idToken}`,
+          },
+          body: JSON.stringify({
+            playerId: player.id,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "حدث خطأ أثناء حذف اللاعب"
+        );
+      }
+
+      alert("تم حذف اللاعب بنجاح");
+
+      if (player.teamId) {
+        window.location.href =
+          "/admin-team?id=" + player.teamId;
+      } else {
+        window.location.href = "/clubs";
+      }
+    } catch (error: any) {
+      console.error(error);
+
+      alert(
+        error?.message ||
+          "حدث خطأ أثناء حذف اللاعب"
       );
 
       setSaving(false);
@@ -229,7 +302,9 @@ export default function AdminPlayerPage() {
     } catch (error) {
       console.error(error);
 
-      alert("حدث خطأ أثناء رفض اللاعب");
+      alert(
+        "حدث خطأ أثناء رفض اللاعب"
+      );
 
       setSaving(false);
     }
@@ -243,17 +318,8 @@ export default function AdminPlayerPage() {
     try {
       setOpeningDocument(field);
 
-      const auth = getAuth(app);
-      const currentUser = auth.currentUser;
-
-      if (!currentUser) {
-        throw new Error(
-          "يجب تسجيل الدخول أولًا"
-        );
-      }
-
       const idToken =
-        await currentUser.getIdToken();
+        await getCurrentUserToken();
 
       const response = await fetch(
         `/api/player-document?playerId=${encodeURIComponent(
@@ -347,9 +413,7 @@ export default function AdminPlayerPage() {
       if (value?.toDate) {
         return value
           .toDate()
-          .toLocaleDateString(
-            "ar-EG"
-          );
+          .toLocaleDateString("ar-EG");
       }
 
       return String(value);
@@ -460,8 +524,6 @@ export default function AdminPlayerPage() {
           margin: "0 auto",
         }}
       >
-        {/* Header */}
-
         <div
           style={{
             display: "flex",
@@ -510,8 +572,6 @@ export default function AdminPlayerPage() {
             ← رجوع للفريق
           </button>
         </div>
-
-        {/* Player Header */}
 
         <div
           style={{
@@ -617,8 +677,6 @@ export default function AdminPlayerPage() {
           </div>
         </div>
 
-        {/* Basic Information */}
-
         <section
           style={{
             background: "#111827",
@@ -705,8 +763,6 @@ export default function AdminPlayerPage() {
           </div>
         </section>
 
-        {/* Club / Team */}
-
         <section
           style={{
             background: "#111827",
@@ -757,8 +813,6 @@ export default function AdminPlayerPage() {
             />
           </div>
         </section>
-
-        {/* Registration */}
 
         <section
           style={{
@@ -846,8 +900,6 @@ export default function AdminPlayerPage() {
             </div>
           )}
         </section>
-
-        {/* Documents */}
 
         <section
           style={{
@@ -947,8 +999,6 @@ export default function AdminPlayerPage() {
           </div>
         </section>
 
-        {/* Actions */}
-
         {player.approvalStatus ===
           "pending" && (
           <section
@@ -1024,11 +1074,66 @@ export default function AdminPlayerPage() {
               >
                 ✕ رفض اللاعب
               </button>
+
+              <button
+                onClick={deletePlayer}
+                disabled={saving}
+                style={{
+                  flex: 1,
+                  minWidth: "220px",
+                  background: "#7f1d1d",
+                  color: "white",
+                  border:
+                    "1px solid #991b1b",
+                  padding: "15px 25px",
+                  borderRadius: "10px",
+                  cursor: saving
+                    ? "not-allowed"
+                    : "pointer",
+                  fontSize: "16px",
+                  fontWeight: "700",
+                }}
+              >
+                🗑 حذف اللاعب
+              </button>
             </div>
           </section>
         )}
 
-        {/* Player Photo */}
+        {player.approvalStatus !==
+          "pending" && (
+          <section
+            style={{
+              background: "#111827",
+              border:
+                "1px solid #334155",
+              borderRadius: "18px",
+              padding: "25px",
+              marginBottom: "20px",
+            }}
+          >
+            <button
+              onClick={deletePlayer}
+              disabled={saving}
+              style={{
+                width: "100%",
+                background: "#7f1d1d",
+                color: "white",
+                border:
+                  "1px solid #991b1b",
+                padding: "15px 25px",
+                borderRadius: "10px",
+                cursor: saving
+                  ? "not-allowed"
+                  : "pointer",
+                fontSize: "16px",
+                fontWeight: "700",
+              }}
+            >
+              🗑 حذف اللاعب
+            </button>
+          </section>
+        )}
 
         <section
           style={{
@@ -1082,8 +1187,6 @@ export default function AdminPlayerPage() {
           )}
         </section>
       </div>
-
-      {/* Reject Modal */}
 
       {showReject && (
         <div
