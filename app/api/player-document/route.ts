@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import cloudinary from "@/lib/cloudinary";
 import { adminAuth, adminDb } from "@/lib/firebase-admin";
+import { isAdmin } from "@/lib/admin-permissions";
 
 export const runtime = "nodejs";
 
@@ -22,13 +23,6 @@ function isAllowedField(
   );
 }
 
-function isAdmin(decodedToken: any) {
-  return (
-    decodedToken?.admin === true ||
-    decodedToken?.role === "admin"
-  );
-}
-
 export async function GET(request: Request) {
   try {
     // 1) التأكد من تسجيل الدخول
@@ -45,7 +39,8 @@ export async function GET(request: Request) {
       );
     }
 
-    const idToken = authorization.substring(7);
+    const idToken =
+      authorization.substring(7);
 
     const decodedToken =
       await adminAuth.verifyIdToken(idToken);
@@ -81,9 +76,10 @@ export async function GET(request: Request) {
     }
 
     // 3) جلب اللاعب
-    const playerRef = adminDb
-      .collection("players")
-      .doc(playerId);
+    const playerRef =
+      adminDb
+        .collection("players")
+        .doc(playerId);
 
     const playerSnapshot =
       await playerRef.get();
@@ -100,62 +96,63 @@ export async function GET(request: Request) {
     const playerData =
       playerSnapshot.data();
 
-    const clubId = playerData?.clubId;
-
-    if (
-      typeof clubId !== "string" ||
-      !clubId
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "لا يوجد نادي مرتبط بهذا اللاعب",
-        },
-        { status: 400 }
-      );
-    }
-
-    // 4) التأكد أن المستخدم صاحب النادي
-    const clubSnapshot =
-      await adminDb
-        .collection("clubs")
-        .doc(clubId)
-        .get();
-
-    if (!clubSnapshot.exists) {
-      return NextResponse.json(
-        {
-          error: "النادي غير موجود",
-        },
-        { status: 404 }
-      );
-    }
-
-    const clubData =
-      clubSnapshot.data();
-
-    const isClubOwner =
-      clubData?.userId ===
-      decodedToken.uid;
-
+    // 4) التحقق من صلاحية الأدمن أولًا
+    // SUPER ADMIN محسوب تلقائيًا من خلال isAdmin
     const userIsAdmin =
       isAdmin(decodedToken);
 
-    // 5) السماح للأدمن أو صاحب النادي فقط
-    if (
-      !isClubOwner &&
-      !userIsAdmin
-    ) {
-      return NextResponse.json(
-        {
-          error:
-            "ليس لديك صلاحية لعرض هذا المستند",
-        },
-        { status: 403 }
-      );
+    // 5) لو مش أدمن، نتحقق من صاحب النادي
+    if (!userIsAdmin) {
+      const clubId =
+        playerData?.clubId;
+
+      if (
+        typeof clubId !== "string" ||
+        !clubId
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "لا يوجد نادي مرتبط بهذا اللاعب",
+          },
+          { status: 400 }
+        );
+      }
+
+      const clubSnapshot =
+        await adminDb
+          .collection("clubs")
+          .doc(clubId)
+          .get();
+
+      if (!clubSnapshot.exists) {
+        return NextResponse.json(
+          {
+            error: "النادي غير موجود",
+          },
+          { status: 404 }
+        );
+      }
+
+      const clubData =
+        clubSnapshot.data();
+
+      const isClubOwner =
+        clubData?.userId ===
+        decodedToken.uid;
+
+      if (!isClubOwner) {
+        return NextResponse.json(
+          {
+            error:
+              "ليس لديك صلاحية لعرض هذا المستند",
+          },
+          { status: 403 }
+        );
+      }
     }
 
-    // 6) جلب بيانات المستند من اللاعب
+    // 6) جلب بيانات المستند
     const documentData =
       playerData?.[field];
 
@@ -193,8 +190,7 @@ export async function GET(request: Request) {
       );
     }
 
-    // 7) إنشاء رابط مؤقت وموقع
-    // صالح لمدة 5 دقائق فقط
+    // 7) إنشاء رابط مؤقت
     const expiresAt =
       Math.floor(Date.now() / 1000) +
       5 * 60;
