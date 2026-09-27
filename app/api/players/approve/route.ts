@@ -19,6 +19,15 @@ export async function POST(request: NextRequest) {
     const decodedToken =
       await adminAuth.verifyIdToken(idToken);
 
+    // DEBUG مؤقت لمعرفة ما يراه السيرفر
+    console.log("APPROVE AUTH DEBUG:", {
+      uid: decodedToken.uid,
+      signInProvider:
+        decodedToken.firebase?.sign_in_provider,
+      isSuperAdmin:
+        isSuperAdmin(decodedToken),
+    });
+
     // اعتماد اللاعبين حاليًا متاح للـ SUPER ADMIN فقط
     if (!isSuperAdmin(decodedToken)) {
       return NextResponse.json(
@@ -30,7 +39,9 @@ export async function POST(request: NextRequest) {
     // قراءة بيانات الطلب
     const body = await request.json();
 
-    const playerId = String(body.playerId || "").trim();
+    const playerId = String(
+      body.playerId || ""
+    ).trim();
 
     if (!playerId) {
       return NextResponse.json(
@@ -44,7 +55,8 @@ export async function POST(request: NextRequest) {
       .collection("players")
       .doc(playerId);
 
-    const playerSnapshot = await playerRef.get();
+    const playerSnapshot =
+      await playerRef.get();
 
     if (!playerSnapshot.exists) {
       return NextResponse.json(
@@ -53,17 +65,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const playerData = playerSnapshot.data();
+    const playerData =
+      playerSnapshot.data();
 
     // منع إعادة اعتماد لاعب معتمد بالفعل
-    if (playerData?.approvalStatus === "approved") {
+    if (
+      playerData?.approvalStatus ===
+      "approved"
+    ) {
       return NextResponse.json(
         {
           error: "هذا اللاعب معتمد بالفعل",
           registrationNumber:
-            playerData.registrationNumber || null,
+            playerData.registrationNumber ||
+            null,
           registrationDate:
-            playerData.registrationDate || null,
+            playerData.registrationDate ||
+            null,
         },
         { status: 400 }
       );
@@ -75,34 +93,45 @@ export async function POST(request: NextRequest) {
       .doc("registrationCounter");
 
     const registrationNumber =
-      await adminDb.runTransaction(async (transaction) => {
-        const counterSnapshot =
-          await transaction.get(counterRef);
+      await adminDb.runTransaction(
+        async (transaction) => {
+          const counterSnapshot =
+            await transaction.get(
+              counterRef
+            );
 
-        let nextNumber = 1;
+          let nextNumber = 1;
 
-        if (counterSnapshot.exists) {
-          const currentNumber =
-            Number(counterSnapshot.data()?.lastNumber || 0);
+          if (counterSnapshot.exists) {
+            const currentNumber =
+              Number(
+                counterSnapshot.data()
+                  ?.lastNumber || 0
+              );
 
-          nextNumber = currentNumber + 1;
+            nextNumber =
+              currentNumber + 1;
+          }
+
+          transaction.set(
+            counterRef,
+            {
+              lastNumber: nextNumber,
+            },
+            { merge: true }
+          );
+
+          return `CH-${String(
+            nextNumber
+          ).padStart(6, "0")}`;
         }
-
-        transaction.set(
-          counterRef,
-          {
-            lastNumber: nextNumber,
-          },
-          { merge: true }
-        );
-
-        return `CH-${String(nextNumber).padStart(6, "0")}`;
-      });
+      );
 
     // تاريخ التسجيل
-    const registrationDate = new Date()
-      .toISOString()
-      .split("T")[0];
+    const registrationDate =
+      new Date()
+        .toISOString()
+        .split("T")[0];
 
     // اعتماد اللاعب
     await playerRef.update({
@@ -119,7 +148,10 @@ export async function POST(request: NextRequest) {
       registrationDate,
     });
   } catch (error: any) {
-    console.error("APPROVE PLAYER ERROR:", error);
+    console.error(
+      "APPROVE PLAYER ERROR:",
+      error
+    );
 
     return NextResponse.json(
       {
