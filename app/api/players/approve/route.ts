@@ -2,145 +2,252 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminDb } from "../../../../lib/firebase-admin";
 import { isSuperAdmin } from "../../../../lib/admin-permissions";
 
+export const runtime = "nodejs";
+
 export async function POST(request: NextRequest) {
   try {
-    // التحقق من تسجيل الدخول
-    const authHeader = request.headers.get("authorization");
+    const authHeader =
+      request.headers.get("authorization");
 
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json(
-        { error: "غير مصرح" },
+        {
+          error: "غير مصرح",
+          step: "authorization",
+        },
         { status: 401 }
       );
     }
 
-    const idToken = authHeader.replace("Bearer ", "");
+    const idToken =
+      authHeader.substring(7);
 
-    const decodedToken =
-      await adminAuth.verifyIdToken(idToken);
+    let decodedToken;
 
-    // DEBUG مؤقت لمعرفة ما يراه السيرفر
-    console.log("APPROVE AUTH DEBUG:", {
-      uid: decodedToken.uid,
-      signInProvider:
-        decodedToken.firebase?.sign_in_provider,
-      isSuperAdmin:
-        isSuperAdmin(decodedToken),
-    });
+    try {
+      decodedToken =
+        await adminAuth.verifyIdToken(idToken);
+    } catch (error: any) {
+      console.error(
+        "VERIFY ID TOKEN ERROR:",
+        error
+      );
 
-    // اعتماد اللاعبين حاليًا متاح للـ SUPER ADMIN فقط
+      return NextResponse.json(
+        {
+          error:
+            error?.message ||
+            "فشل التحقق من تسجيل الدخول",
+          step: "verifyIdToken",
+        },
+        { status: 500 }
+      );
+    }
+
+    console.log(
+      "APPROVE AUTH DEBUG:",
+      {
+        uid: decodedToken.uid,
+        signInProvider:
+          decodedToken.firebase?.sign_in_provider,
+        isSuperAdmin:
+          isSuperAdmin(decodedToken),
+      }
+    );
+
     if (!isSuperAdmin(decodedToken)) {
       return NextResponse.json(
-        { error: "ليس لديك صلاحية اعتماد اللاعبين" },
+        {
+          error:
+            "ليس لديك صلاحية اعتماد اللاعبين",
+          step: "permission",
+          uid: decodedToken.uid,
+        },
         { status: 403 }
       );
     }
 
-    // قراءة بيانات الطلب
-    const body = await request.json();
+    let body;
 
-    const playerId = String(
-      body.playerId || ""
-    ).trim();
-
-    if (!playerId) {
-      return NextResponse.json(
-        { error: "رقم اللاعب غير موجود" },
-        { status: 400 }
-      );
-    }
-
-    // جلب اللاعب
-    const playerRef = adminDb
-      .collection("players")
-      .doc(playerId);
-
-    const playerSnapshot =
-      await playerRef.get();
-
-    if (!playerSnapshot.exists) {
-      return NextResponse.json(
-        { error: "اللاعب غير موجود" },
-        { status: 404 }
-      );
-    }
-
-    const playerData =
-      playerSnapshot.data();
-
-    // منع إعادة اعتماد لاعب معتمد بالفعل
-    if (
-      playerData?.approvalStatus ===
-      "approved"
-    ) {
+    try {
+      body = await request.json();
+    } catch (error: any) {
       return NextResponse.json(
         {
-          error: "هذا اللاعب معتمد بالفعل",
-          registrationNumber:
-            playerData.registrationNumber ||
-            null,
-          registrationDate:
-            playerData.registrationDate ||
-            null,
+          error:
+            error?.message ||
+            "بيانات الطلب غير صحيحة",
+          step: "request-body",
         },
         { status: 400 }
       );
     }
 
-    // إنشاء رقم تسجيل فريد
-    const counterRef = adminDb
-      .collection("system")
-      .doc("registrationCounter");
+    const playerId =
+      String(body.playerId || "").trim();
 
-    const registrationNumber =
-      await adminDb.runTransaction(
-        async (transaction) => {
-          const counterSnapshot =
-            await transaction.get(
-              counterRef
-            );
+    if (!playerId) {
+      return NextResponse.json(
+        {
+          error: "رقم اللاعب غير موجود",
+          step: "playerId",
+        },
+        { status: 400 }
+      );
+    }
 
-          let nextNumber = 1;
+    let playerSnapshot;
 
-          if (counterSnapshot.exists) {
-            const currentNumber =
-              Number(
-                counterSnapshot.data()
-                  ?.lastNumber || 0
-              );
+    try {
+      const playerRef =
+        adminDb
+          .collection("players")
+          .doc(playerId);
 
-            nextNumber =
-              currentNumber + 1;
-          }
+      playerSnapshot =
+        await playerRef.get();
 
-          transaction.set(
-            counterRef,
-            {
-              lastNumber: nextNumber,
-            },
-            { merge: true }
-          );
+      if (!playerSnapshot.exists) {
+        return NextResponse.json(
+          {
+            error: "اللاعب غير موجود",
+            step: "player-get",
+          },
+          { status: 404 }
+        );
+      }
 
-          return `CH-${String(
-            nextNumber
-          ).padStart(6, "0")}`;
-        }
+      const playerData =
+        playerSnapshot.data();
+
+      if (
+        playerData?.approvalStatus ===
+        "approved"
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "هذا اللاعب معتمد بالفعل",
+            registrationNumber:
+              playerData.registrationNumber ||
+              null,
+            registrationDate:
+              playerData.registrationDate ||
+              null,
+          },
+          { status: 400 }
+        );
+      }
+    } catch (error: any) {
+      console.error(
+        "PLAYER GET ERROR:",
+        error
       );
 
-    // تاريخ التسجيل
+      return NextResponse.json(
+        {
+          error:
+            error?.message ||
+            "فشل قراءة بيانات اللاعب",
+          step: "player-get",
+        },
+        { status: 500 }
+      );
+    }
+
+    const counterRef =
+      adminDb
+        .collection("system")
+        .doc("registrationCounter");
+
+    let registrationNumber;
+
+    try {
+      registrationNumber =
+        await adminDb.runTransaction(
+          async (transaction) => {
+            const counterSnapshot =
+              await transaction.get(
+                counterRef
+              );
+
+            let nextNumber = 1;
+
+            if (counterSnapshot.exists) {
+              const currentNumber =
+                Number(
+                  counterSnapshot.data()
+                    ?.lastNumber || 0
+                );
+
+              nextNumber =
+                currentNumber + 1;
+            }
+
+            transaction.set(
+              counterRef,
+              {
+                lastNumber: nextNumber,
+              },
+              { merge: true }
+            );
+
+            return `CH-${String(
+              nextNumber
+            ).padStart(6, "0")}`;
+          }
+        );
+    } catch (error: any) {
+      console.error(
+        "REGISTRATION TRANSACTION ERROR:",
+        error
+      );
+
+      return NextResponse.json(
+        {
+          error:
+            error?.message ||
+            "فشل إنشاء رقم التسجيل",
+          step: "registration-counter",
+        },
+        { status: 500 }
+      );
+    }
+
     const registrationDate =
       new Date()
         .toISOString()
         .split("T")[0];
 
-    // اعتماد اللاعب
-    await playerRef.update({
-      approvalStatus: "approved",
-      rejectionReason: "",
-      registrationNumber,
-      registrationDate,
-      approvedAt: new Date(),
-    });
+    try {
+      const playerRef =
+        adminDb
+          .collection("players")
+          .doc(playerId);
+
+      await playerRef.update({
+        approvalStatus: "approved",
+        rejectionReason: "",
+        registrationNumber,
+        registrationDate,
+        approvedAt: new Date(),
+      });
+    } catch (error: any) {
+      console.error(
+        "PLAYER UPDATE ERROR:",
+        error
+      );
+
+      return NextResponse.json(
+        {
+          error:
+            error?.message ||
+            "فشل تحديث بيانات اللاعب",
+          step: "player-update",
+        },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
@@ -149,7 +256,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error(
-      "APPROVE PLAYER ERROR:",
+      "APPROVE PLAYER UNKNOWN ERROR:",
       error
     );
 
@@ -158,6 +265,7 @@ export async function POST(request: NextRequest) {
         error:
           error?.message ||
           "حدث خطأ أثناء اعتماد اللاعب",
+        step: "unknown",
       },
       { status: 500 }
     );
