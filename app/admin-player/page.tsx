@@ -177,17 +177,32 @@ export default function AdminPlayerPage() {
         }
       );
 
-      const data = await response.json();
+      const responseText =
+        await response.text();
+
+      let data: any = {};
+
+      if (responseText.trim()) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          throw new Error(
+            `السيرفر رجّع استجابة غير صالحة (${response.status})`
+          );
+        }
+      }
 
       if (!response.ok) {
         throw new Error(
-          data.error ||
+          data?.error ||
             "حدث خطأ أثناء اعتماد اللاعب"
         );
       }
 
       alert(
-        `تم اعتماد اللاعب بنجاح\nرقم التسجيل: ${data.registrationNumber}`
+        `تم اعتماد اللاعب بنجاح\nرقم التسجيل: ${
+          data?.registrationNumber || "غير متاح"
+        }`
       );
 
       window.location.reload();
@@ -234,11 +249,24 @@ export default function AdminPlayerPage() {
         }
       );
 
-      const data = await response.json();
+      const responseText =
+        await response.text();
+
+      let data: any = {};
+
+      if (responseText.trim()) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          throw new Error(
+            `السيرفر رجّع استجابة غير صالحة (${response.status})`
+          );
+        }
+      }
 
       if (!response.ok) {
         throw new Error(
-          data.error ||
+          data?.error ||
             "حدث خطأ أثناء حذف اللاعب"
         );
       }
@@ -334,18 +362,44 @@ export default function AdminPlayerPage() {
         }
       );
 
-      const data = await response.json();
+      /*
+       * مهم:
+       * لا نستخدم response.json() مباشرة.
+       * نقرأ الرد كنص أولًا حتى لا يظهر
+       * Unexpected end of JSON input
+       * لو الرد فاضي.
+       */
+      const responseText =
+        await response.text();
+
+      let data: any = {};
+
+      if (responseText.trim()) {
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error(
+            "Invalid JSON response:",
+            parseError
+          );
+
+          throw new Error(
+            `السيرفر رجّع استجابة غير صالحة (HTTP ${response.status})`
+          );
+        }
+      }
 
       if (!response.ok) {
         throw new Error(
-          data.error ||
-            "تعذر فتح المستند"
+          data?.error ||
+            data?.message ||
+            `تعذر فتح المستند (HTTP ${response.status})`
         );
       }
 
-      if (!data.url) {
+      if (!data?.url) {
         throw new Error(
-          "لم يتم إنشاء رابط المستند"
+          "السيرفر لم يرجّع رابط المستند"
         );
       }
 
@@ -355,7 +409,10 @@ export default function AdminPlayerPage() {
         "noopener,noreferrer"
       );
     } catch (error: any) {
-      console.error(error);
+      console.error(
+        "Open document error:",
+        error
+      );
 
       alert(
         error?.message ||
